@@ -2,6 +2,9 @@ import socket
 import time
 import threading
 from Crypto.Cipher import AES
+import requests
+import numpy as np
+import random
 
 port = 9999
 
@@ -11,7 +14,8 @@ ESP_device_2_IP = "192.168.86.220"
 RPi_device_1_IP = "192.168.86.217" # Control node
 RPi_device_2_IP = "192.168.86.218"
 
-RSSI_time_threshold = 30 # amount of seconds before we reset the rssi to low value
+RSSI_time_threshold = 20 # amount of seconds before we reset the rssi to low value
+HTTP_request_threshold = 10 # amount of time between HTTP requests for device updates
 
 # Maintain a dictionary of the last known RSSIs of the devices
 devices_and_rssis = {} # Entry looks like: key: [MAC] value: ([4 RSSIs], [4 last updated times])
@@ -30,16 +34,16 @@ def parse_data(sender, data):
             # Just setting up the new dictionary entry before we put stuff into it
             devices_and_rssis[MAC] = ([-140, -140, -140, -140], [current_time, current_time, current_time, current_time])
         if (sender == ESP_device_1_IP):
-            devices_and_rssis[MAC][0][0] = rssi
+            devices_and_rssis[MAC][0][0] = int(rssi)
             devices_and_rssis[MAC][1][0] = time.time()
         elif (sender == ESP_device_2_IP):
-            devices_and_rssis[MAC][0][1] = rssi
+            devices_and_rssis[MAC][0][1] = int(rssi)
             devices_and_rssis[MAC][1][1] = time.time()
         elif (sender == RPi_device_1_IP):
-            devices_and_rssis[MAC][0][2] = rssi
+            devices_and_rssis[MAC][0][2] = int(rssi)
             devices_and_rssis[MAC][1][2] = time.time()
         elif (sender == RPi_device_2_IP):
-            devices_and_rssis[MAC][0][3] = rssi
+            devices_and_rssis[MAC][0][3] = int(rssi)
             devices_and_rssis[MAC][1][3] = time.time()
         else:
             print("Unknown sender", sender)
@@ -50,7 +54,9 @@ def refresh_dict():
     while(True):
         print("refreshing")
         current_time = time.time()
+        devices_to_remove = []
         for MAC in devices_and_rssis.keys():
+            # Check if any RSSI values that do exist are stale
             time_index = 0 # Keeps track of which time we are comparing
             for old_time in devices_and_rssis[MAC][1]:
                 if (devices_and_rssis[MAC][0][time_index] == -140):
@@ -62,7 +68,53 @@ def refresh_dict():
                     devices_and_rssis[MAC][0][time_index] = -140
                     devices_and_rssis[MAC][1][time_index] = current_time
                 time_index += 1
+            # Remove any entries that are all -140 from dictionary, since the device hasn't been heard from in a 'long time'
+            # Do this after the stale RSSI check since RSSIs were just updated
+            if (devices_and_rssis[MAC][0] == [-140, -140, -140, -140]):
+                devices_to_remove.append(MAC)
+                print("all -140, remove device")
+        for device in devices_to_remove: #Remove old devices
+            devices_and_rssis.pop(MAC)
         time.sleep(RSSI_time_threshold)
+
+def encrypt_AES(msg_bytes):
+    # https://stackoverflow.com/a/31762882
+    iv = bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    key = "7fkgy8fhsk7wmwfs0fhekcm38dhtusn3" # Assume preshared
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    return cipher.encrypt(msg_bytes)
+
+def localize():
+    print("localizing")
+    msg = ""
+    locations = ["Main Gallery", "Restaurant", "Butterfly Pavilion", "David H. Koch Hall"] # Physical locations of devices
+    for device in devices_and_rssis.keys():
+        msg += device
+        device_rssis = np.array(devices_and_rssis[device][0])
+        device_location = np.where(device_rssis == device_rssis.max()) # Determine which entry has lowest RSSI (max since -), returns array
+        # If there are ties, handle by randomly selecting from the list (if there is only one, it will select that one entry)
+        device_location = random.choice(device_location)[0] # turns the array into a integer
+        msg += "="
+        msg += locations[device_location]
+        msg += ";"
+    return msg
+
+def send_dict():
+    while(True):
+        time.sleep(HTTP_request_threshold)
+        # Localize the devices in dict: devices_and_rssis
+        localized_msg = localize()
+        # Encrypt the message and then make POST request
+        if (localized_msg == ""):
+            continue
+        msg = "88:54:1F:2C:5E:64=A;87:54:1F:4C:5E:64=G;"
+        while (len(msg) % 16 != 0):
+            msg += " "
+        e_msg = encrypt_AES(msg.encode())
+        response=requests.post('https://pacific-springs-58488.herokuapp.com/rasppi',data=e_msg)
+        print("Statuscode:",response.status_code)
+        print(response.json())
+
 
 def decrypt_AES(encrypted_bytes):
     # https://pycryptodome.readthedocs.io/en/latest/src/cipher/aes.html
@@ -74,6 +126,9 @@ def decrypt_AES(encrypted_bytes):
 # Code to run the refresh dictionary on a separate thread
 t1 = threading.Thread(target=refresh_dict, args=[])
 t1.start()
+
+t2 = threading.Thread(target=send_dict, args=[])
+t2.start()
 
 try:
     s = socket.socket()
