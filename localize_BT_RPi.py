@@ -5,6 +5,7 @@ from Crypto.Cipher import AES
 import requests
 import numpy as np
 import random
+import base64
 
 port = 9999
 
@@ -16,6 +17,7 @@ RPi_device_2_IP = "192.168.86.218"
 
 RSSI_time_threshold = 20 # amount of seconds before we reset the rssi to low value
 HTTP_request_threshold = 10 # amount of time between HTTP requests for device updates
+RSSI_THRESHOLD = -60 # Minimum RSSI value needed to be "in a room" after determining closest beacon
 
 # Maintain a dictionary of the last known RSSIs of the devices
 devices_and_rssis = {} # Entry looks like: key: [MAC] value: ([4 RSSIs], [4 last updated times])
@@ -73,25 +75,31 @@ def refresh_dict():
             if (devices_and_rssis[MAC][0] == [-140, -140, -140, -140]):
                 devices_to_remove.append(MAC)
                 print("all -140, remove device")
+        msg = ""
         for device in devices_to_remove: #Remove old devices
             devices_and_rssis.pop(MAC)
+            msg += device
+            msg += "=H;"
+        if (len(devices_to_remove) != 0):
+            print("redirecting back to home page")
+            # Send devices that are no longer in the area back to the home page H
+            e_msg = base64.b64encode(encrypt_token(msg))
+            response=requests.post('https://pacific-springs-58488.herokuapp.com/rasppi',data={"data":e_msg})
         time.sleep(RSSI_time_threshold)
-
-def encrypt_AES(msg_bytes):
-    # https://stackoverflow.com/a/31762882
-    iv = bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-    key = "7fkgy8fhsk7wmwfs0fhekcm38dhtusn3" # Assume preshared
-    cipher = AES.new(key, AES.MODE_CBC, iv)
-    return cipher.encrypt(msg_bytes)
 
 def localize():
     print("localizing")
     msg = ""
-    locations = ["Main Gallery", "Restaurant", "Butterfly Pavilion", "David H. Koch Hall"] # Physical locations of devices
+    locations = ["A", "B", "C", "D", "H"] # Physical locations of devices
     for device in devices_and_rssis.keys():
         msg += device
         device_rssis = np.array(devices_and_rssis[device][0])
         device_location = np.where(device_rssis == device_rssis.max()) # Determine which entry has lowest RSSI (max since -), returns array
+        # If the threshold is not reached, put the person in Room "H"
+        if (device_rssis.max() < RSSI_THRESHOLD):
+            device_location = 4
+            print(device, "not close to any room, missed threshold")
+            continue
         # If there are ties, handle by randomly selecting from the list (if there is only one, it will select that one entry)
         device_location = random.choice(device_location)[0] # turns the array into a integer
         msg += "="
@@ -107,14 +115,24 @@ def send_dict():
         # Encrypt the message and then make POST request
         if (localized_msg == ""):
             continue
-        msg = "88:54:1F:2C:5E:64=A;87:54:1F:4C:5E:64=G;"
-        while (len(msg) % 16 != 0):
-            msg += " "
-        e_msg = encrypt_AES(msg.encode())
-        response=requests.post('https://pacific-springs-58488.herokuapp.com/rasppi',data=e_msg)
-        print("Statuscode:",response.status_code)
-        print(response.json())
+        e_msg = base64.b64encode(encrypt_token(localized_msg))
+        #print('Python encrypt: ' + str(e_msg))
+        
+        response=requests.post('https://pacific-springs-58488.herokuapp.com/rasppi',data={"data":e_msg})
+        #print("Statuscode:",response.status_code)
+        #print(response.json())
 
+def _pad(s): return (s + (AES.block_size - len(s) % AES.block_size) * chr(AES.block_size - len(s) % AES.block_size)).encode("utf8")
+def _cipher():
+    key = '7fkgy8fhsk7wmwfs0fhekcm38dhtusn3'
+    iv = '0000000000000000'
+    return AES.new(key=key.encode("utf8"), mode=AES.MODE_CBC, IV=iv.encode("utf8"))
+
+def encrypt_token(data):
+    return _cipher().encrypt(_pad(data))
+
+def decrypt_token(data):
+    return _cipher().decrypt(data)
 
 def decrypt_AES(encrypted_bytes):
     # https://pycryptodome.readthedocs.io/en/latest/src/cipher/aes.html
