@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-
-# performs a simple device inquiry, followed by a remote name request of each
-# discovered device
-# Credits: https://github.com/karulis/pybluez/blob/master/examples/advanced/inquiry-with-rssi.py
+# ECSE 4660: Internetworking of Things Spring 2021
+# Author: Rahul Jain
+# Final Project: Raspberry Pi Bluetooth Scanning Script
+# Starter code: https://github.com/karulis/pybluez/blob/master/examples/advanced/inquiry-with-rssi.py
 
 import os
 import sys
@@ -12,7 +12,7 @@ import bluetooth
 import socket
 from Crypto.Cipher import AES
 
-SERVER_IP = "192.168.86.217"
+SERVER_IP = "192.168.86.217" # IP Reserved
 SERVER_PORT = 9999
 
 def encrypt_AES(msg_bytes):
@@ -45,7 +45,6 @@ def printpacket(pkt):
     for c in pkt:
         sys.stdout.write("%02x " % struct.unpack("B",c)[0])
     print() 
-
 
 def read_inquiry_mode(sock):
     """returns the current mode, or -1 on failure"""
@@ -135,7 +134,7 @@ def device_inquiry_with_with_rssi(sock):
                 rssi = bluetooth.byte_to_signed_int(
                         bluetooth.get_byte(pkt[1+13*nrsp+i]))
                 results.append( ( addr, rssi ) )
-                #print("[%s] RSSI: [%d]" % (addr, rssi))
+                print("[%s] RSSI: [%d]" % (addr, rssi))
         elif event == bluez.EVT_INQUIRY_COMPLETE:
             done = True
         elif event == bluez.EVT_CMD_STATUS:

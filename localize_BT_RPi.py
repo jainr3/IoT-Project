@@ -1,3 +1,7 @@
+# ECSE 4660: Internetworking of Things Spring 2021
+# Author: Rahul Jain
+# Final Project: Raspberry Pi Bluetooth Localization Script
+
 import socket
 import time
 import threading
@@ -7,7 +11,7 @@ import numpy as np
 import random
 import base64
 
-port = 9999
+port = 9999 # Server Port
 
 # Need to configure these... (reserve IP on network)
 ESP_device_1_IP = "192.168.86.219"
@@ -18,6 +22,7 @@ RPi_device_2_IP = "192.168.86.218"
 RSSI_time_threshold = 20 # amount of seconds before we reset the rssi to low value
 HTTP_request_threshold = 10 # amount of time between HTTP requests for device updates
 RSSI_THRESHOLD = -60 # Minimum RSSI value needed to be "in a room" after determining closest beacon
+RSSI_FAR_AWAY = -140 # Placeholder value for RSSI values that are not set yet
 
 # Maintain a dictionary of the last known RSSIs of the devices
 devices_and_rssis = {} # Entry looks like: key: [MAC] value: ([4 RSSIs], [4 last updated times])
@@ -34,7 +39,7 @@ def parse_data(sender, data):
         if MAC not in devices_and_rssis:
             current_time = time.time()
             # Just setting up the new dictionary entry before we put stuff into it
-            devices_and_rssis[MAC] = ([-140, -140, -140, -140], [current_time, current_time, current_time, current_time])
+            devices_and_rssis[MAC] = ([RSSI_FAR_AWAY, RSSI_FAR_AWAY, RSSI_FAR_AWAY, RSSI_FAR_AWAY], [current_time, current_time, current_time, current_time])
         if (sender == ESP_device_1_IP):
             devices_and_rssis[MAC][0][0] = int(rssi)
             devices_and_rssis[MAC][1][0] = time.time()
@@ -61,20 +66,20 @@ def refresh_dict():
             # Check if any RSSI values that do exist are stale
             time_index = 0 # Keeps track of which time we are comparing
             for old_time in devices_and_rssis[MAC][1]:
-                if (devices_and_rssis[MAC][0][time_index] == -140):
+                if (devices_and_rssis[MAC][0][time_index] == RSSI_FAR_AWAY):
                     print("rssi still not updated, val at", devices_and_rssis[MAC][0][time_index])
                 elif (current_time - old_time > RSSI_time_threshold):
                     print("stale value for rssi found")
                     print(devices_and_rssis)
                     # Reset the RSSI corresponding to the time/rssi index
-                    devices_and_rssis[MAC][0][time_index] = -140
+                    devices_and_rssis[MAC][0][time_index] = RSSI_FAR_AWAY
                     devices_and_rssis[MAC][1][time_index] = current_time
                 time_index += 1
-            # Remove any entries that are all -140 from dictionary, since the device hasn't been heard from in a 'long time'
+            # Remove any entries that are all RSSI_FAR_AWAY from dictionary, since the device hasn't been heard from in a 'long time'
             # Do this after the stale RSSI check since RSSIs were just updated
-            if (devices_and_rssis[MAC][0] == [-140, -140, -140, -140]):
+            if (devices_and_rssis[MAC][0] == [RSSI_FAR_AWAY, RSSI_FAR_AWAY, RSSI_FAR_AWAY, RSSI_FAR_AWAY]):
                 devices_to_remove.append(MAC)
-                print("all -140, remove device")
+                print("all RSSI_FAR_AWAY, remove device")
         msg = ""
         for device in devices_to_remove: #Remove old devices
             devices_and_rssis.pop(MAC)
@@ -97,7 +102,7 @@ def localize():
         device_location = np.where(device_rssis == device_rssis.max()) # Determine which entry has lowest RSSI (max since -), returns array
         # If the threshold is not reached, put the person in Room "H"
         if (device_rssis.max() < RSSI_THRESHOLD):
-            device_location = 4
+            device_location = 4 # Index of "H"
             print(device, "not close to any room, missed threshold")
             continue
         # If there are ties, handle by randomly selecting from the list (if there is only one, it will select that one entry)
@@ -122,18 +127,18 @@ def send_dict():
         #print("Statuscode:",response.status_code)
         #print(response.json())
 
+# AES methods for sending to the server
 def _pad(s): return (s + (AES.block_size - len(s) % AES.block_size) * chr(AES.block_size - len(s) % AES.block_size)).encode("utf8")
 def _cipher():
     key = '7fkgy8fhsk7wmwfs0fhekcm38dhtusn3'
     iv = '0000000000000000'
     return AES.new(key=key.encode("utf8"), mode=AES.MODE_CBC, IV=iv.encode("utf8"))
-
 def encrypt_token(data):
     return _cipher().encrypt(_pad(data))
-
 def decrypt_token(data):
     return _cipher().decrypt(data)
 
+# AES decrypt for RPis and ESPs to the RPi
 def decrypt_AES(encrypted_bytes):
     # https://pycryptodome.readthedocs.io/en/latest/src/cipher/aes.html
     iv = bytes([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
@@ -145,9 +150,11 @@ def decrypt_AES(encrypted_bytes):
 t1 = threading.Thread(target=refresh_dict, args=[])
 t1.start()
 
+# Code to run the periodic POST requests on separate thread
 t2 = threading.Thread(target=send_dict, args=[])
 t2.start()
 
+# Main Loop Code with sockets to get data from other nodes
 try:
     s = socket.socket()
 

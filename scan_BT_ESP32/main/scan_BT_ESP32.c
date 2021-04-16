@@ -1,18 +1,18 @@
 /*
+   ECSE 4660: Internetworking of Things Spring 2021
+   Final Project: Main Script for ESP32 Bluetooth Scanning
+   Original Source: https://github.com/espressif/esp-idf/blob/master/examples/bluetooth/bluedroid/classic_bt/bt_discovery/main/bt_discovery.c
+   Author: Rahul Jain
    This example code is in the Public Domain (or CC0 licensed, at your option.)
-
    Unless required by applicable law or agreed to in writing, this
    software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
    CONDITIONS OF ANY KIND, either express or implied.
 */
 
-
-
 /****************************************************************************
 *
-* This file is for Classic Bluetooth device and service discovery Demo.
-* Original Source: https://github.com/espressif/esp-idf/blob/master/examples/bluetooth/bluedroid/classic_bt/bt_discovery/main/bt_discovery.c
-* File has been modifed for the project application
+* This file is from a Classic Bluetooth device and service discovery demo.
+* File has been heavily modified for the project application
 * 
 ****************************************************************************/
 
@@ -38,8 +38,8 @@
 #define GAP_TAG          "GAP"
 #define SOCKET_TAG "socketClient"
 
-#define SERVER_IP "192.168.86.217" // Configure
-#define SERVER_PORT 9999 //Configure
+#define SERVER_IP "192.168.86.217" // IP Reserved
+#define SERVER_PORT 9999
 
 char btSsid[10000];
 
@@ -115,7 +115,7 @@ static void update_device_info(esp_bt_gap_cb_param_t *param)
     snprintf( rssiValueAsString, length + 1, "%d", rssi );
 
     s = strstr(btSsid, bda_str);      // search for string "hassasin" in buff
-    if (s == NULL)                     // if successful then s now points at "hassasin"
+    if (s == NULL)                    // if successful then s now points at "hassasin"
     {
         strcat(btSsid, bda_str);
         strcat(btSsid, "=");
@@ -124,8 +124,8 @@ static void update_device_info(esp_bt_gap_cb_param_t *param)
     }
 }
 
-// References: https://everythingesp.com/esp32-arduino-tutorial-encryption-aes128-in-ecb-mode/
-// https://tls.mbed.org/kb/how-to/encrypt-with-aes-cbc
+// AES References: https://everythingesp.com/esp32-arduino-tutorial-encryption-aes128-in-ecb-mode/
+// Library Documentation: https://tls.mbed.org/kb/how-to/encrypt-with-aes-cbc
 
 #define AES_TAG "AES"
 
@@ -138,8 +138,6 @@ void encrypt_rssi(char * plainText, unsigned char * outputBuffer){
     mbedtls_aes_context aes;
 
     mbedtls_aes_init( &aes );
-    //mbedtls_aes_setkey_enc( &aes, (const unsigned char*) key, strlen(key) * 8 );
-    //mbedtls_aes_crypt_ecb( &aes, MBEDTLS_AES_ENCRYPT, (const unsigned char*)plainText, outputBuffer);
     mbedtls_aes_setkey_enc( &aes, key, 256 );
     mbedtls_aes_crypt_cbc( &aes, MBEDTLS_AES_ENCRYPT, strlen(plainText), iv, (const unsigned char*)plainText, outputBuffer );
     mbedtls_aes_free( &aes );
@@ -262,6 +260,7 @@ void app_main()
     }
     ESP_ERROR_CHECK( ret );
 
+    // Initialize Wifi
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
     wifi_init_sta();
 
