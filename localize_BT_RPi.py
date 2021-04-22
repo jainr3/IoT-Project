@@ -82,7 +82,7 @@ def refresh_dict():
                 print("all RSSI_FAR_AWAY, remove device")
         msg = ""
         for device in devices_to_remove: #Remove old devices
-            devices_and_rssis.pop(MAC)
+            devices_and_rssis.pop(device)
             msg += device
             msg += "=H;"
         if (len(devices_to_remove) != 0):
