@@ -21,7 +21,7 @@ RPi_device_2_IP = "192.168.86.218"
 
 RSSI_time_threshold = 20 # amount of seconds before we reset the rssi to low value
 HTTP_request_threshold = 10 # amount of time between HTTP requests for device updates
-RSSI_THRESHOLD = -60 # Minimum RSSI value needed to be "in a room" after determining closest beacon
+RSSI_THRESHOLD = -70 # Minimum RSSI value needed to be "in a room" after determining closest beacon
 RSSI_FAR_AWAY = -140 # Placeholder value for RSSI values that are not set yet
 
 # Maintain a dictionary of the last known RSSIs of the devices
@@ -104,6 +104,7 @@ def localize():
         if (device_rssis.max() < RSSI_THRESHOLD):
             device_location = 4 # Index of "H"
             print(device, "not close to any room, missed threshold")
+            msg += "=" + locations[device_location] + ";"
             continue
         # If there are ties, handle by randomly selecting from the list (if there is only one, it will select that one entry)
         device_location = random.choice(device_location)[0] # turns the array into a integer
@@ -120,8 +121,8 @@ def send_dict():
         # Encrypt the message and then make POST request
         if (localized_msg == ""):
             continue
+        print('Sending to website: ' + str(localized_msg))
         e_msg = base64.b64encode(encrypt_token(localized_msg))
-        #print('Python encrypt: ' + str(e_msg))
         
         response=requests.post('https://pacific-springs-58488.herokuapp.com/rasppi',data={"data":e_msg})
         #print("Statuscode:",response.status_code)
